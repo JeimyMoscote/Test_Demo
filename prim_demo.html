@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PRIM Demo – Regulatory & Risk Scoring (MVP)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; max-width: 1000px; }
+    .card { border: 1px solid #ddd; border-radius: 14px; padding: 16px; margin: 12px 0; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .row > div { flex: 1; min-width: 240px; }
+    label { font-weight: 600; display:block; margin-top: 10px; }
+    input, textarea, select { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #ccc; }
+    textarea { min-height: 86px; }
+    button { padding: 10px 14px; border: 0; border-radius: 12px; cursor: pointer; font-weight: 700; }
+    .btn-primary { background: #0f766e; color: #fff; }
+    .btn-muted { background: #eee; }
+    .pill { display:inline-block; padding: 4px 10px; border-radius: 999px; border:1px solid #ddd; margin-left:8px; }
+    pre { background:#0b1020; color:#e7e7e7; padding: 14px; border-radius: 14px; overflow:auto; }
+    .risk-low { background:#e8fff0; border-color:#9ae6b4; }
+    .risk-med { background:#fffbe8; border-color:#f6e05e; }
+    .risk-high { background:#ffe8e8; border-color:#feb2b2; }
+  </style>
+</head>
+<body>
+  <h1>PRIM Demo <span class="pill">MVP</span></h1>
+  <p>Evaluación rápida de <b>clasificación</b>, <b>cumplimiento</b> y <b>riesgo</b> para tecnologías agro (bio/ químicas).</p>
+
+  <div class="card">
+    <label>Casos demo</label>
+    <select id="caseSelect"></select>
+    <div id="story" class="card" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Nombre del caso</label>
+        <input id="caseName" />
+      </div>
+      <div>
+        <label>Forma</label>
+        <select id="form">
+          <option>líquido</option>
+          <option>sólido</option>
+        </select>
+      </div>
+      <div>
+        <label>Contiene microorganismos</label>
+        <select id="micro">
+          <option value="false">No</option>
+          <option value="true">Sí</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Ingredientes (uno por línea)</label>
+    <textarea id="ingredients"></textarea>
+
+    <label>Función / propósito</label>
+    <input id="intended" placeholder="ej: fertilizante foliar / bioestimulante estrés / enmienda suelo" />
+
+    <label>Aplicación</label>
+    <input id="application" placeholder="ej: foliar / fertirriego / suelo / fertirriego y foliar" />
+
+    <label>Etiqueta declara clasificación (Decreto 61)</label>
+    <select id="declClass">
+      <option value="false">No</option>
+      <option value="true">Sí</option>
+    </select>
+
+    <label>Claims (uno por línea)</label>
+    <textarea id="claims"></textarea>
+
+    <div class="row">
+      <div>
+        <label>N %</label>
+        <input id="N" />
+      </div>
+      <div>
+        <label>P2O5 %</label>
+        <input id="P2O5" />
+      </div>
+      <div>
+        <label>K2O %</label>
+        <input id="K2O" />
+      </div>
+      <div>
+        <label>C org %</label>
+        <input id="Corg" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>pH</label>
+        <input id="pH" />
+      </div>
+      <div>
+        <label>Densidad (g/L)</label>
+        <input id="density" />
+      </div>
+      <div>
+        <label>Solubilidad</label>
+        <input id="solubility" placeholder="ej: miscible / alta" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>E. coli AUSENTE</label>
+        <select id="ecoli">
+          <option value="">(sin dato)</option>
+          <option value="true">Sí</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+      <div>
+        <label>Salmonella AUSENTE</label>
+        <select id="salmo">
+          <option value="">(sin dato)</option>
+          <option value="true">Sí</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+      <div>
+        <label>Coliformes fecales</label>
+        <input id="fecal" placeholder="número o vacío" />
+      </div>
+      <div>
+        <label>Huevos helmintos</label>
+        <input id="helm" placeholder="número o vacío" />
+      </div>
+    </div>
+
+    <div style="margin-top:14px; display:flex; gap:10px;">
+      <button class="btn-primary" id="evalBtn">Evaluar</button>
+      <button class="btn-muted" id="resetBtn">Limpiar</button>
+    </div>
+  </div>
+
+  <div id="result" class="card" style="display:none"></div>
+  <pre id="jsonOut" style="display:none"></pre>
+
+<script>
+  // ---- Data ----
+  const CASES = {
+    "BioAndes Don Víctor (INDAP) – GuanoFer™": {
+      story: "📍 BioAndes Don Víctor (INDAP)\n- Micro biofábrica rural INDAP.\n- GuanoFer™ (guano+leche+levadura) foliar.\n- Dolor: rechazos por claims (orgánico/plaguicida), faltan microbiología y fisicoquímicos.\n- Demo: checklist + score + corrección de etiqueta.",
+      data: {
+        case_name:"BioAndes Don Víctor (INDAP) – GuanoFer™",
+        form:"líquido", contains_microorganisms:true,
+        ingredients:["Guano de rumiante","Leche","Levadura","Azúcar"],
+        intended_function:"fertilizante foliar", application:"foliar",
+        declared_classification_on_label:false,
+        label_claims:["Apto para agricultura orgánica","Aumenta resistencia a enfermedades","Certificado por Servicios Terroir","Sostenible"],
+        composition_pct:{N:0.6,P2O5:0.2,K2O:0.1,Corg:3.0},
+        physicochemical:{pH:"",density_gL:"",solubility:""},
+        microbiology:{E_coli_absent:"",Salmonella_absent:"",fecal_coliforms:"",helminth_eggs:""}
+      }
+    },
+    "DesertSignal Biotech SpA (Startup) – DesertSignal™": {
+      story: "🧬 DesertSignal Biotech SpA\n- Startup deeptech.\n- Metabolito fúngico raro/novedoso para tolerancia a sequía.\n- Dolor: vacío regulatorio / sin certificación típica.\n- Demo: riesgo + estrategia (bioestimulante + evidencia + claims seguros).",
+      data: {
+        case_name:"DesertSignal Biotech SpA – DesertSignal™",
+        form:"líquido", contains_microorganisms:false,
+        ingredients:["Metabolito secundario fúngico (no clásico / novedoso)"],
+        intended_function:"mejora señalización vegetal y tolerancia a estrés hídrico",
+        application:"foliar",
+        declared_classification_on_label:false,
+        label_claims:["Mejora tolerancia a sequía","Optimiza respuesta fisiológica vegetal"],
+        composition_pct:{N:"",P2O5:"",K2O:"",Corg:""},
+        physicochemical:{pH:5.8,density_gL:1010,solubility:"miscible"},
+        microbiology:{E_coli_absent:true,Salmonella_absent:true,fecal_coliforms:"",helminth_eggs:""}
+      }
+    },
+    "FungoShield BioCrop SpA (Startup) – FungoShield™": {
+      story: "🛡️ FungoShield BioCrop SpA\n- Startup.\n- Extracto antifúngico.\n- Dolor: quieren venderlo como bioestimulante, pero claims son de control.\n- Demo: PRIM marca riesgo ALTO y sugiere ruta plaguicida.",
+      data: {
+        case_name:"FungoShield BioCrop SpA – FungoShield™",
+        form:"líquido", contains_microorganisms:false,
+        ingredients:["Extracto fúngico bioactivo"],
+        intended_function:"control de patógenos fúngicos",
+        application:"foliar",
+        declared_classification_on_label:false,
+        label_claims:["Controla hongos fitopatógenos","Protección contra enfermedades"],
+        composition_pct:{N:"",P2O5:"",K2O:"",Corg:""},
+        physicochemical:{pH:5.0,density_gL:1015,solubility:"miscible"},
+        microbiology:{E_coli_absent:true,Salmonella_absent:true,fecal_coliforms:"",helminth_eggs:""}
+      }
+    }
+  };
+
+  // ---- Engine (JS mirror of MVP rules) ----
+  const THRESHOLDS = { MIN_PRIMARY_NPK_ORG:1.0, MIN_CORG_ORG:5.0 };
+  const LABEL_BLOCKLIST = {
+    environmental_claims: ["sostenible","respetuoso con el medio ambiente","eco-friendly","ecológico"],
+    pesticide_like_claims: ["controla enfermedades","previene enfermedades","resistencia a enfermedades","fungicida","bactericida","insecticida","plaguicida","mata plagas","control de plagas","protección contra enfermedades","antifúngico"],
+    organic_cert_claims: ["apto para agricultura orgánica","certificado orgánico","organic certified"],
+    lab_certification_claims: ["certificado por","certificado por servicios terroir","certificado por laboratorio"]
+  };
+
+  function containsAny(text, words){
+    const t=(text||"").toLowerCase();
+    return words.some(w=>t.includes(w.toLowerCase()));
+  }
+
+  function classifyProduct(c){
+    const ingredients=(c.ingredients||[]).join(" ");
+    const claims=(c.label_claims||[]).join(" ");
+    const intended=(c.intended_function||"").toLowerCase();
+    const hasMicro=!!c.contains_microorganisms;
+
+    if (containsAny(intended+" "+claims, ["bioestimul","estrés","tolerancia","eficiencia","rizósfera","raíz","señalización"])) {
+      return {category:"Bioestimulante", group: hasMicro ? "Bioestimulante microbiano":"Bioestimulante no microbiano"};
+    }
+    if (containsAny(intended+" "+claims, ["enmienda","mejorar suelo","estructura","correctiv","pH del suelo","caliza"])) {
+      return {category:"Fertilizante", group:"Enmienda"};
+    }
+    const ing=ingredients.toLowerCase();
+    const hasOrg=containsAny(ing, ["guano","compost","estiércol","humus","melaza","leche","levadura","extracto"]);
+    const hasMin=containsAny(ing, ["nitrato","fosfato","sulfato","cloruro","urea","quelato","k2o","p2o5","n-p-k"]);
+    if (hasOrg && hasMin) return {category:"Fertilizante", group:"Órgano-mineral"};
+    if (hasOrg) return {category:"Fertilizante", group:"Orgánico"};
+    return {category:"Fertilizante", group:"Inorgánico"};
+  }
+
+  function evalCase(c){
+    const cls = classifyProduct(c);
+    let score=0;
+    const failures=[];
+
+    // ORG_MIN
+    if (cls.category==="Fertilizante" && cls.group==="Orgánico"){
+      const comp=c.composition_pct||{};
+      const missing=["N","P2O5","K2O","Corg"].filter(k=>comp[k]===undefined || comp[k]===null || comp[k]==="");
+      if (missing.length){
+        failures.push({rule:"ORG_MIN", severity:18, message:`Faltan datos de composición: ${JSON.stringify(missing)} (para validar mínimos).`});
+        score+=18;
+      } else {
+        const N=+comp.N, P=+comp.P2O5, K=+comp.K2O, C=+comp.Corg;
+        if (Math.max(N,P,K) < THRESHOLDS.MIN_PRIMARY_NPK_ORG){ failures.push({rule:"ORG_MIN", severity:18, message:`N/P2O5/K2O < ${THRESHOLDS.MIN_PRIMARY_NPK_ORG}% (MVP).`}); score+=18; }
+        if (C < THRESHOLDS.MIN_CORG_ORG){ failures.push({rule:"ORG_MIN", severity:18, message:`C org < ${THRESHOLDS.MIN_CORG_ORG}% (MVP).`}); score+=18; }
+      }
+    }
+
+    // MICRO
+    const ing=(c.ingredients||[]).join(" ").toLowerCase();
+    const animal=containsAny(ing, ["guano","estiércol","rumiante","ave","purin"]);
+    const micro=c.microbiology||{};
+    if (["Fertilizante","Bioestimulante"].includes(cls.category)){
+      if (micro.E_coli_absent!==true){ failures.push({rule:"MICRO", severity:28, message:"No se acredita/declara AUSENCIA de E. coli."}); score+=28; }
+      if (micro.Salmonella_absent!==true){ failures.push({rule:"MICRO", severity:28, message:"No se acredita/declara AUSENCIA de Salmonella spp."}); score+=28; }
+    }
+    if (animal){
+      if (micro.fecal_coliforms===undefined || micro.fecal_coliforms===null || micro.fecal_coliforms===""){ failures.push({rule:"MICRO", severity:28, message:"Faltan coliformes fecales (subproducto animal)."}); score+=28; }
+      if (micro.helminth_eggs===undefined || micro.helminth_eggs===null || micro.helminth_eggs===""){ failures.push({rule:"MICRO", severity:28, message:"Faltan huevos de helmintos (subproducto animal)."}); score+=28; }
+    }
+
+    // PHYS
+    const phys=c.physicochemical||{};
+    const form=(c.form||"").toLowerCase();
+    const app=(c.application||"").toLowerCase();
+    if (form.includes("liqu") || app.includes("foliar")){
+      if (phys.pH===undefined || phys.pH===null || phys.pH===""){ failures.push({rule:"PHYS", severity:14, message:"Falta pH."}); score+=14; }
+      if (phys.density_gL===undefined || phys.density_gL===null || phys.density_gL===""){ failures.push({rule:"PHYS", severity:14, message:"Falta densidad (g/L a 20°C)."}); score+=14; }
+    }
+    if (app.includes("foliar") && (phys.solubility===undefined || phys.solubility===null || phys.solubility==="")){
+      failures.push({rule:"PHYS", severity:14, message:"Falta solubilidad (típica para foliar)."}); score+=14;
+    }
+
+    // LABEL
+    const cl=(c.label_claims||[]).join(" | ").toLowerCase();
+    const flags=[];
+    Object.entries(LABEL_BLOCKLIST).forEach(([k,arr])=>{
+      if (arr.some(w=>cl.includes(w.toLowerCase()))) flags.push(k);
+    });
+    if (flags.length){ failures.push({rule:"LABEL", severity:22, message:`Claims problemáticos en etiqueta: ${JSON.stringify(flags)}.`}); score+=22; }
+
+    // LABEL_CLASS
+    if (c.declared_classification_on_label!==true){ failures.push({rule:"LABEL_CLASS", severity:10, message:"Etiqueta/folleto no declara clasificación (Decreto 61)."}); score+=10; }
+
+    // Data missing bonus
+    if (failures.some(f=>f.message.includes("Falta") || f.message.includes("Faltan"))) score += 8;
+
+    score=Math.min(score,100);
+    const level = score>=75 ? "ALTO" : (score>=45 ? "MEDIO":"BAJO");
+    return {case_name:c.case_name||"SIN NOMBRE", classification_suggested:cls, risk_score:score, risk_level:level, failures};
+  }
+
+  // ---- UI helpers ----
+  const $ = (id)=>document.getElementById(id);
+  function setForm(d){
+    $("caseName").value=d.case_name||"";
+    $("form").value=d.form||"líquido";
+    $("micro").value=String(!!d.contains_microorganisms);
+    $("ingredients").value=(d.ingredients||[]).join("\n");
+    $("intended").value=d.intended_function||"";
+    $("application").value=d.application||"";
+    $("declClass").value=String(!!d.declared_classification_on_label);
+    $("claims").value=(d.label_claims||[]).join("\n");
+
+    const comp=d.composition_pct||{};
+    $("N").value=comp.N??"";
+    $("P2O5").value=comp.P2O5??"";
+    $("K2O").value=comp.K2O??"";
+    $("Corg").value=comp.Corg??"";
+
+    const phys=d.physicochemical||{};
+    $("pH").value=phys.pH??"";
+    $("density").value=phys.density_gL??"";
+    $("solubility").value=phys.solubility??"";
+
+    const mic=d.microbiology||{};
+    $("ecoli").value = mic.E_coli_absent===true ? "true" : (mic.E_coli_absent===false ? "false" : "");
+    $("salmo").value = mic.Salmonella_absent===true ? "true" : (mic.Salmonella_absent===false ? "false" : "");
+    $("fecal").value=mic.fecal_coliforms??"";
+    $("helm").value=mic.helminth_eggs??"";
+  }
+
+  function readForm(){
+    const toBoolTri = (v)=> v==="" ? "" : (v==="true");
+    return {
+      case_name: $("caseName").value.trim() || "SIN NOMBRE",
+      form: $("form").value,
+      contains_microorganisms: $("micro").value==="true",
+      ingredients: $("ingredients").value.split("\n").map(x=>x.trim()).filter(Boolean),
+      intended_function: $("intended").value.trim(),
+      application: $("application").value.trim(),
+      declared_classification_on_label: $("declClass").value==="true",
+      label_claims: $("claims").value.split("\n").map(x=>x.trim()).filter(Boolean),
+      composition_pct: { N:$("N").value.trim(), P2O5:$("P2O5").value.trim(), K2O:$("K2O").value.trim(), Corg:$("Corg").value.trim() },
+      physicochemical: { pH:$("pH").value.trim(), density_gL:$("density").value.trim(), solubility:$("solubility").value.trim() },
+      microbiology: {
+        E_coli_absent: $("ecoli").value==="" ? "" : ($("ecoli").value==="true"),
+        Salmonella_absent: $("salmo").value==="" ? "" : ($("salmo").value==="true"),
+        fecal_coliforms: $("fecal").value.trim(),
+        helminth_eggs: $("helm").value.trim()
+      }
+    };
+  }
+
+  // ---- Populate select ----
+  const sel=$("caseSelect");
+  sel.innerHTML = `<option value="__new__">(Nuevo caso)</option>` +
+                  Object.keys(CASES).map(k=>`<option>${k}</option>`).join("");
+
+  function setStory(text){
+    $("story").textContent = text || "Selecciona un caso demo para ver la historia.";
+  }
+
+  sel.addEventListener("change", ()=>{
+    const key=sel.value;
+    if (key==="__new__"){
+      setStory("Escribe tu propio caso y presiona Evaluar.");
+      return;
+    }
+    setStory(CASES[key].story);
+    setForm(CASES[key].data);
+  });
+
+  $("resetBtn").addEventListener("click", ()=>{
+    sel.value="__new__";
+    setStory("Selecciona un caso demo para ver la historia.");
+    setForm({
+      case_name:"", form:"líquido", contains_microorganisms:false, ingredients:[],
+      intended_function:"", application:"", declared_classification_on_label:false, label_claims:[],
+      composition_pct:{N:"",P2O5:"",K2O:"",Corg:""},
+      physicochemical:{pH:"",density_gL:"",solubility:""},
+      microbiology:{E_coli_absent:"",Salmonella_absent:"",fecal_coliforms:"",helminth_eggs:""}
+    });
+    $("result").style.display="none";
+    $("jsonOut").style.display="none";
+  });
+
+  $("evalBtn").addEventListener("click", ()=>{
+    const c=readForm();
+    // normalize numeric fields if possible
+    ["N","P2O5","K2O","Corg"].forEach(k=>{
+      const v=c.composition_pct[k];
+      c.composition_pct[k] = (v==="" ? "" : Number(v));
+    });
+    ["pH","density_gL"].forEach(k=>{
+      const v=c.physicochemical[k];
+      c.physicochemical[k] = (v==="" ? "" : Number(v));
+    });
+
+    const res=evalCase(c);
+    const cls=res.classification_suggested;
+    const lvl=res.risk_level;
+    const riskClass = lvl==="BAJO" ? "risk-low" : (lvl==="MEDIO" ? "risk-med":"risk-high");
+
+    let html = `<div class="${riskClass}" style="padding:12px;border-radius:14px;border:1px solid #ddd">` +
+               `<h2 style="margin:0">${res.case_name}</h2>` +
+               `<p><b>Clasificación sugerida:</b> ${cls.category} / ${cls.group}</p>` +
+               `<p><b>Riesgo:</b> ${lvl} — <b>${res.risk_score}/100</b></p>`;
+
+    if (res.failures.length){
+      html += `<h3>Hallazgos</h3><ul>` + res.failures.map(f=>`<li><b>[${f.rule}]</b> (+${f.severity}) ${f.message}</li>`).join("") + `</ul>`;
+    } else {
+      html += `<p>✅ Sin hallazgos con reglas MVP.</p>`;
+    }
+    html += `</div>`;
+
+    $("result").innerHTML = html;
+    $("result").style.display="block";
+    $("jsonOut").textContent = JSON.stringify(res, null, 2);
+    $("jsonOut").style.display="block";
+  });
+
+  // init
+  setStory("Selecciona un caso demo para ver la historia.");
+</script>
+</body>
+</html>
